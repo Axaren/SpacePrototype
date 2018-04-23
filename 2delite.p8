@@ -1,48 +1,12 @@
 pico-8 cartridge // http://www.pico-8.com
 version 16
 __lua__
-player = {}
-player.x=60
-player.y=60
-player.aim=.5
-player.r=3
-player.tip={}
-player.br={}
-player.br.x = 0
-player.br.y = 0
-player.bl={}
-player.bl.x = 0
-player.bl.y = 0
-player.tip.x = 0
-player.tip.y = 0
-player.hp=0
-player.max_hp=3
-player.dx=0
-player.dy=0
-player.rotspeed=.025
-player.accelpow=.15
-player.is_accelerating=false
-player.max_speed=3
-player.shooting_cd_counter=0
-player.shooting_cd=15
-player.fuel=0
-player.max_fuel=1023
-
+--main
 world_max_x=255
 world_max_y=255
 
-enemy={}
-enemy.x=0
-enemy.y=0
-enemy.dx=0
-enemy.dy=0
-enemy.kind=0
-enemy.hp=0
-enemy.max_hp=0
-
-bullet_spd=3
 bullets={}
-
+planets={}
 enemies={}
 
 function _init()
@@ -73,6 +37,59 @@ function _draw()
   camera(0,0)
   draw_hud()
 end
+
+function update_camera()
+  camera_pos.x=player.x-60
+  camera_pos.y=player.y-60
+end
+
+function draw_hud()
+  for i=1,player.max_hp do
+   spr(5,9*i-5,12)
+  end
+  
+  for i=1,player.hp do
+   spr(4,9*i-5,12)
+  end
+end
+
+
+function draw_world()
+ --world border
+ rect(0,0,world_max_x,world_max_y,color(6))
+end
+
+function game_over()
+ run()
+end
+-->8
+--player
+player = {}
+player.x=60
+player.y=60
+player.aim=.5
+player.r=3
+player.tip={}
+player.br={}
+player.br.x = 0
+player.br.y = 0
+player.bl={}
+player.bl.x = 0
+player.bl.y = 0
+player.tip.x = 0
+player.tip.y = 0
+player.hp=0
+player.max_hp=3
+player.dx=0
+player.dy=0
+player.rotspeed=.025
+player.accelpow=.15
+player.is_accelerating=false
+player.max_speed=3
+player.shooting_cd_counter=0
+player.shooting_cd=15
+player.fuel=0
+player.max_fuel=512
 
 function update_player()
   local previous_dx=player.dx
@@ -105,13 +122,13 @@ function update_player()
     player.shooting_cd_counter-=1
   end
 
-  if btn(0) then
+  if btn(⬅️) then
     player.aim-=player.rotspeed
   end
-  if btn(1) then
+  if btn(➡️) then
     player.aim+=player.rotspeed
   end
-  if btn(2) and player.fuel>0 then
+  if btn(⬆️) and player.fuel>0 then
     player.fuel-=1
     player.dx+=-sin(player.aim*-1)*player.accelpow
     player.dy+=cos(player.aim*-1)*player.accelpow
@@ -138,7 +155,7 @@ function update_player()
     player.is_accelerating=false
   end
   
-  if btn(3) and player.fuel>0 then
+  if btn(⬇️) and player.fuel>0 then
     player.fuel-=1
     if (player.dx>0 or player.dy>0) then sfx(0) end
     
@@ -192,8 +209,21 @@ function update_player()
   
 end
 
-function update_enemies()
+function draw_player()
+  line(player.tip.x, player.tip.y, player.br.x, player.br.y, player.color)
+  line(player.tip.x, player.tip.y, player.bl.x, player.bl.y, player.color)
+  if player.is_accelerating then
+    line(player.bl.x, player.bl.y, player.br.x, player.br.y, color(9))
+  else
+    line(player.bl.x, player.bl.y, player.br.x, player.br.y, player.color)
+  end
+  --displays velocity vectors
+  --line(player.tip.x,player.tip.y, player.tip.x+player.dx*5, player.tip.y,color(10))
+  --line(player.tip.x,player.tip.y, player.tip.x, player.tip.y+player.dy*5,color(10))
 end
+-->8
+--bullets
+bullet_spd=3
 
 function update_bullets()
   for bullet in all(bullets) do
@@ -225,44 +255,10 @@ function update_bullets()
   end
 end
 
-function update_camera()
-  camera_pos.x=player.x-60
-  camera_pos.y=player.y-60
-end
-  
-function draw_player()
-  line(player.tip.x, player.tip.y, player.br.x, player.br.y, player.color)
-  line(player.tip.x, player.tip.y, player.bl.x, player.bl.y, player.color)
-  if player.is_accelerating then
-    line(player.bl.x, player.bl.y, player.br.x, player.br.y, color(9))
-  else
-    line(player.bl.x, player.bl.y, player.br.x, player.br.y, player.color)
-  end
-  --displays velocity vectors
-  --line(player.tip.x,player.tip.y, player.tip.x+player.dx*5, player.tip.y,color(10))
-  --line(player.tip.x,player.tip.y, player.tip.x, player.tip.y+player.dy*5,color(10))
-end
-
-function draw_hud()
-  for i=1,player.max_hp do
-   spr(5,9*i-5,12)
-  end
-  
-  for i=1,player.hp do
-   spr(4,9*i-5,12)
-  end
-end
-
 function draw_bullets()
   for bullet in all(bullets) do
    pset(bullet.x,bullet.y,player.color)
   end
-end
-
-function draw_world()
- --world border
- rect(0,0,world_max_x,world_max_y,color(6))
- map(0,0,0,0,128,64)
 end
 
 function fire_bullet()
@@ -277,21 +273,40 @@ function fire_bullet()
     add(bullets,bullet)
   end
 end
+-->8
+--enemies
+enemy={}
+enemy.x=0
+enemy.y=0
+enemy.dx=0
+enemy.dy=0
+enemy.kind=0
+enemy.hp=0
+enemy.max_hp=0
 
-function game_over()
- run()
+function update_enemies()
 end
 
-function point_inside(point, rect)
-  if point.x <= rect.x+rect.w and
-     point.x >= rect.x and
-     point.y <= rect.y+rect.h and
-     point.y >= rect.y then
-     return true
-  end
-  return false
+function draw_enemies()
 end
+-->8
+--planets
+planet={}
+planet.x=0
+planet.y=0
+planet.w=0
+planet.h=0
 
+function create_planet(x,y)
+  local planet={}
+  planet.x=x
+  planet.y=y
+  planet.h=16
+  planet.w=16
+  add(planets,planet)
+end
+-->8
+--utils
 function check_collision(thing1, thing2)
   if thing1.x <= thing2.x+thing2.w and
      thing1.x+thing1.w >= thing2.x and
@@ -300,6 +315,16 @@ function check_collision(thing1, thing2)
      thing1.y+thing1.h >= thing2.y then
      
     return true
+  end
+  return false
+end
+
+function point_inside(point, rect)
+  if point.x <= rect.x+rect.w and
+     point.x >= rect.x and
+     point.y <= rect.y+rect.h and
+     point.y >= rect.y then
+     return true
   end
   return false
 end
