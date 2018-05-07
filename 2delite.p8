@@ -83,6 +83,16 @@ function draw_game()
  cls()
  camera(camera_pos.x,camera_pos.y)
  draw_world()
+ 
+ --sorts draw_table by draw_priority
+ for i=1,#draw_table do
+  local j = i
+  while j > 1 and draw_table[j-1].draw_priority > draw_table[j].draw_priority do
+   draw_table[j],draw_table[j-1] = draw_table[j-1],draw_table[j]
+   j = j - 1
+  end
+ end
+ 
  for entity in all(draw_table) do
   entity:draw()
  end
@@ -188,7 +198,7 @@ function player:init()
  self.dy=0
  self.color=7
  self.state=1
- self.draw_priority=4
+ self.draw_priority=2
 end
 
 function player:update_pos()
@@ -367,8 +377,9 @@ function fire_bullet(origin,aim,speed,color)
  b.x=origin.x
  b.y=origin.y
  b.state=1
- b.t=30
+ b.t=60
  b.color=color
+ b.draw_priority=2
  add(active_entities,b)
 end
 
@@ -413,6 +424,7 @@ function spawn_enemy(kind)
  e.speed=0
  e.spr=0
  e.detection_radius=32
+ e.draw_priority=3
  
  if e.kind==2 then
   e.w=8
@@ -474,6 +486,7 @@ function create_planet(x,y)
  p.has_player=false
  p.cooldown=0
  p.fuel_tank=p.max_fuel
+ p.draw_priority=1
  add(planets,p)
  return p
 end
