@@ -3,41 +3,83 @@ version 16
 __lua__
 --main
 t=0
+game_state=1
 world_max_x=512
 world_max_y=512
 star_prob=0.001
+camera_pos={x=0,y=0}
 
 
 player={}
-bullets={}
-planets={}
-enemies={}
 bg_sprites={}
 
 active_entities={}
 draw_table={}
 
 function _init()
+ generate_background()
+ init_title()
+end
+
+function init_game()
  player=player:new{player}
  player:init()
  add(active_entities,player)
- camera_pos={x=0,y=0}
- generate_background()
- local planet=create_planet(128,128)
+ local planet=create_planet(256,256)
  add(active_entities,planet)
  add(draw_table,planet)
  add(draw_table,player)
+ local enemy=spawn_enemy(2)
+ add(active_entities,enemy)
+ add(draw_table,enemy)
+end
+
+function init_title()
+ cls()
+ camera(192,192)
+ draw_world()
+ spr(64,240,240,4,4)
+ camera()
+ print("prototype",46,38,color(13))
+ print("press x to start",32,84,color(13))
+ camera(192,192)
 end
 
 function _update()
+ if game_state == 1 then
+  if btn(❎) then
+   game_state = 2
+   init_game()
+  end
+ elseif game_state == 2 then
+  update_game()
+ end
+end
+
+function update_game()
  t+=1
+ draw_table={}
  for entity in all(active_entities) do
   entity:update()
+  if entity.state==0 then
+   del(active_entities,entity)
+   entity=nil
+  elseif is_inside_screen(entity) then
+   add(draw_table,entity)
+  end
  end
  update_camera()
 end
 
 function _draw()
+ if game_state == 0 then
+  draw_game_over()
+ elseif game_state == 2 then
+  draw_game()
+ end
+end
+
+function draw_game()
  cls()
  camera(camera_pos.x,camera_pos.y)
  draw_world()
@@ -49,8 +91,8 @@ function _draw()
 end
 
 function update_camera()
- camera_pos.x=player.x-60
- camera_pos.y=player.y-60
+ camera_pos.x=player.centroid.x-64
+ camera_pos.y=player.centroid.y-64
 end
 
 function draw_hud()
@@ -61,6 +103,7 @@ function draw_hud()
  for i=1,player.hp do
   spr(4,9*i-5,12)
  end
+ 
 end
 
 
@@ -68,7 +111,7 @@ function draw_world()
  --world border  
  rect(0,0,world_max_x,world_max_y,color(6))
  --background
- for sprite in all(bg_sprites) do
+ for k,sprite in pairs(bg_sprites) do
   pset(sprite.x,sprite.y,color(7))
  end
 end
@@ -76,15 +119,27 @@ end
 function generate_background()
  for x=1,world_max_x-1 do
   for y=1,world_max_y-1 do
-   if rnd()<star_prob then
+   if rnd(1)<star_prob then
     add(bg_sprites,{x=x,y=y})
    end
   end
  end
 end
 
-function game_over()
- run()
+function draw_game_over()
+ cls()
+ print("game over!",108,120)
+end
+
+function is_inside_screen(entity)
+ if entity == player and player.state != 2 then
+  return true
+ else
+  return entity.x+entity.w > camera_pos.x
+  and entity.x < camera_pos.x+128
+  and entity.y+entity.h > camera_pos.y
+  and entity.y < camera_pos.y+128
+ end
 end
 -->8
 --player
@@ -101,18 +156,20 @@ player.bl.x = 0
 player.bl.y = 0
 player.tip.x = 0
 player.tip.y = 0
+player.centroid={}
+player.centroid.x=0
+player.centroid.y=0
 player.hp=0
 player.max_hp=3
 player.dx=0
 player.dy=0
 player.rotspeed=.025
-player.accelpow=.15
+player.accelpow=.1
 player.is_accelerating=false
-player.max_speed=3
+player.max_speed=6
 player.shooting_cd_counter=0
 player.shooting_cd=15
-player.fuel=0
-player.max_fuel=512
+player.bullet_spd=3
 player.state=0
 
 function player:new (o)
@@ -124,14 +181,14 @@ end
 
 function player:init()
  self.fuel=self.max_fuel
- self.x=128
- self.y=128
+ self.x=256
+ self.y=256
  self.hp=self.max_hp
- self.aim=.5
  self.dx=0
  self.dy=0
  self.color=7
  self.state=1
+ self.draw_priority=4
 end
 
 function player:update_pos()
@@ -150,9 +207,10 @@ function player:update()
  local previous_dy=self.dy
  self:update_pos()
  
- if self.state==0 then
-  game_over()
- elseif self.state==1 then 
+ self.centroid.x=(self.tip.x+self.bl.x+self.br.x)/3
+ self.centroid.y=(self.tip.y+self.bl.y+self.br.y)/3
+ 
+ if self.state==1 then 
   if self.x<=0 then
    self.x=0
    self.dx=-self.dx/2
@@ -180,8 +238,7 @@ function player:update()
   if btn(➡️) then
    self.aim+=self.rotspeed
   end
-  if btn(⬆️) and self.fuel>0 then
-   self.fuel-=1
+  if btn(⬆️) then
    self.dx+=-sin(self.aim*-1)*self.accelpow
    self.dy+=cos(self.aim*-1)*self.accelpow
    if abs(self.dx) > self.max_speed then
@@ -207,8 +264,7 @@ function player:update()
    self.is_accelerating=false
   end
   
-  if btn(⬇️) and self.fuel>1 then
-   self.fuel-=2
+  if btn(⬇️) then
    if (self.dx>0 or self.dy>0) then sfx(0) end
     
     if self.dx>0 then
@@ -257,7 +313,7 @@ function player:update()
    end
   end
   
-  if (self.fuel==0 or self.hp==0) self.state=0
+  if (self.hp==0) self.state=0
   
  elseif self.state==2 then
   
@@ -272,76 +328,67 @@ function player:draw()
  else
   line(self.bl.x, self.bl.y, self.br.x, self.br.y, self.color)
  end
- --displays velocity vectors
- --line(self.tip.x,self.tip.y, self.tip.x+self.dx*5, self.tip.y,color(10))
- --line(self.tip.x,self.tip.y, self.tip.x, self.tip.y+self.dy*5,color(10))
 end
 
 function player:fire_bullet()
- if #bullets<5 then
-  sfx(1)
-  local bullet = {}
-  bullet.shooter=self
-  bullet.color=self.color
-  bullet.dx=-sin(self.aim*-1)*bullet_spd
-  bullet.dy=cos(self.aim*-1)*bullet_spd
-  bullet.x=self.tip.x
-  bullet.y=self.tip.y
-  bullet.t=30
-  add(bullets,bullet)
- end
+ sfx(1)
+ fire_bullet(player.tip,player.aim,player.bullet_spd,12)
 end
 
 function player:check_collision()
  for entity in all(draw_table) do
-  if (player:is_inside(entity)) resolve_collision(entity)   
+  if player:is_inside(entity:get_hitbox()) then
+  end   
  end
 end
 
-function player:is_inside(entity)
+function player:is_inside(hitbox)
  return point_inside(player.tip,entity)
     and point_inside(player.bl,entity)
     and point_inside(player.br,entity)
 end
 -->8
 --bullets
-bullet_spd=3
+local bullet={}
 
-function update_bullets()
- for bullet in all(bullets) do
-  bullet.x+=bullet.dx
-  bullet.y+=bullet.dy
-  bullet.w=1
-  bullet.h=1
-  bullet.t-=1
-    
-  if bullet.x<0 then
-   bullet.t=0
-   elseif bullet.x>world_max_x then
-    bullet.x=0
-   end
-   
-  if bullet.y<0 then
-   bullet.y=world_max_y
-  elseif bullet.y>world_max_y then
-   bullet.y=0
-  end
-    
-		if bullet.t<=0
-		 or bullet.x<0
-			or bullet.x>=world_max_x
-			or bullet.y<0
-			or bullet.y>=world_max_y then
-    del(bullets, bullet)
-  end
-        
- end
+function bullet:new (o)
+ o = o or {}
+ setmetatable(o, self)
+ self.__index = self
+ return o
 end
 
-function draw_bullets()
- for bullet in all(bullets) do
-  pset(bullet.x,bullet.y,bullet.color)
+function fire_bullet(origin,aim,speed,color)
+ local b=bullet:new{}
+ b.dx=-sin(aim*-1)*speed
+ b.dy=cos(aim*-1)*speed
+ b.w=1
+ b.h=1
+ b.x=origin.x
+ b.y=origin.y
+ b.state=1
+ b.t=30
+ b.color=color
+ add(active_entities,b)
+end
+
+function bullet:update()
+ self.x+=self.dx
+ self.y+=self.dy
+ self.t-=1
+     
+	if self.t<=0
+		 or self.x<0
+			or self.x>=world_max_x
+			or self.y<0
+			or self.y>=world_max_y then
+		 self.state = 0
  end
+ 
+end
+
+function bullet:draw()
+  pset(self.x,self.y,self.color)
 end
 -->8
 --enemies
@@ -354,23 +401,61 @@ function enemy:new (o)
  return o
 end
 
-function spawn_enemy()
- local rnd_enemy=enemy:new{}
- add(enemies,rnd_enemies)
+function spawn_enemy(kind)
+ local e=enemy:new{}
+ local angle=rnd()
+ local dist=flr(rnd(32))+48
+ e.x=256+sin(angle)*dist
+ e.y=256+cos(angle)*dist
+ e.direction=0.5
+ e.kind=kind
+ e.state=1
+ e.speed=0
+ e.spr=0
+ e.detection_radius=32
+ 
+ if e.kind==2 then
+  e.w=8
+  e.h=8
+  e.spr_num=128
+  e.speed=1.5
+ end
+ 
+ return e
 end
 
-function update_enemies()
- for enemy in all(enemies) do
+function enemy:update()
+ if self.state!=0 then 
   
-  enemy.x+=enemy.dx
-  enemy.y+=enemy.dy
+  if self.kind==2 then
+   if self.state==1 then
+    local self_center={}
+    self_center.x=self.x+self.w/2
+    self_center.y=self.y+self.h/2
     
+    if distance(self_center,player.centroid) < self.detection_radius then
+     self.state = 2
+    end
+   elseif self.state==2 then
+    self:charge_player()
+   end
+  end
+  
+ end
+  
+end
+
+function enemy:draw() 
+ if self.spr_num!=0 then
+  spr(self.spr_num,self.x,self.y)
  end
 end
 
-function draw_enemies()
- for enemy in all(enemies) do
- end
+function enemy:charge_player()
+ local newdir = atan2(player.centroid.x-self.x, player.centroid.y-self.y)
+	self.direction = lerp(self.direction, newdir, 1)
+	self.x += self.speed * cos(self.direction)
+	self.y += self.speed * sin(self.direction)  
 end
 -->8
 --planets
@@ -384,11 +469,10 @@ function planet:new (o)
 end
 
 function create_planet(x,y)
- local p=planet:new{x=x,y=y,w=32,h=32}
+ local p=planet:new{x=x-16,y=y-16,w=32,h=32}
  p.kind=1
  p.has_player=false
  p.cooldown=0
- p.hitbox={x=x+11,y=y+11,w=10,h=10}
  p.fuel_tank=p.max_fuel
  add(planets,p)
  return p
@@ -396,7 +480,7 @@ end
 
 function planet:draw()
   if (self.has_player) pal(11,8)
-  spr(64,self.x,self.y,4,4)
+  spr(64,self.x,self.y,self.w/8,self.h/8)
   pal()
 end
 
@@ -406,6 +490,14 @@ function planet:update()
   if (t%2 == 0 and fuel<max_fuel) fuel+=1
  end
   
+end
+
+function planet:get_hitbox()
+ local hitbox={}
+ if self.kind==1 then
+  hitbox={self.x+11,self.y+11,10,10}
+ end
+ return hitbox
 end
 -->8
 --utils
@@ -429,6 +521,26 @@ function point_inside(point, rect)
      return true
   end
   return false
+end
+
+function lerp(angle1, angle2, t)
+	angle1=angle1%1
+	angle2=angle2%1
+
+	if abs(angle1-angle2)>0.5 then
+	  if angle1>angle2 then
+	   angle2+=1
+	  else
+	   angle1+=1
+	  end
+	end
+
+	return ((1-t)*angle1+t*angle2)%1
+end
+
+function distance(point1,point2)
+ return 
+ sqrt((point1.x-point2.x)*(point1.x-point2.x)+(point1.y-point2.y)*(point1.y-point2.y))
 end
 __gfx__
 00000000333333333333333333333333077007700770077000000000000000000000000000000000000000000000000000000000000000000000000000000000
