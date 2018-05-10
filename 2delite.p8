@@ -12,9 +12,12 @@ camera_pos={x=0,y=0}
 
 player={}
 bg_sprites={}
+bullets={}
 
 active_entities={}
 draw_table={}
+current_quest={}
+completed_quests={}
 
 function _init()
  generate_background()
@@ -29,7 +32,7 @@ function init_game()
  add(active_entities,planet)
  add(draw_table,planet)
  add(draw_table,player)
- local enemy=spawn_enemy(2)
+ local enemy=spawn_enemy(1)
  add(active_entities,enemy)
  add(draw_table,enemy)
 end
@@ -53,20 +56,26 @@ function _update()
   end
  elseif game_state == 2 then
   update_game()
+  check_bullets_enemies_collisions()
+  check_player_collisions()
  end
 end
 
 function update_game()
  t+=1
  draw_table={}
+ 
  for entity in all(active_entities) do
   entity:update()
+  
   if entity.state==0 then
    del(active_entities,entity)
    entity=nil
+   
   elseif is_inside_screen(entity) then
    add(draw_table,entity)
   end
+  
  end
  update_camera()
 end
@@ -83,7 +92,6 @@ function draw_game()
  cls()
  camera(camera_pos.x,camera_pos.y)
  draw_world()
- 
  --sorts draw_table by draw_priority
  for i=1,#draw_table do
   local j = i
@@ -101,8 +109,8 @@ function draw_game()
 end
 
 function update_camera()
- camera_pos.x=player.centroid.x-64
- camera_pos.y=player.centroid.y-64
+ camera_pos.x=player.x-64
+ camera_pos.y=player.y-64
 end
 
 function draw_hud()
@@ -151,6 +159,43 @@ function is_inside_screen(entity)
   and entity.y < camera_pos.y+128
  end
 end
+
+function check_player_collisions()
+ if not player.invuln then
+  for k,entity in pairs(draw_table) do
+   if entity != player and player:is_colliding(entity) then
+   
+    if entity.kind == 2 then
+     entity:dmg_taken(player.contact_dmg)
+     player:dmg_taken(entity.contact_dmg)
+    
+    elseif entity.kind == 3 then
+     if current_quest.completed then
+      entity.has_player=true
+      current_quest = create_rnd_quest()
+     end
+   
+    elseif entity.kind == 4 then
+     if entity.color != player.bullet_color then
+      player:dmg_taken(bullet.dmg)
+     end
+    end
+   
+   end
+  end
+ end
+end
+
+function check_bullets_enemies_collisions()
+ for k,b in pairs(bullets) do
+  for k,e in pairs(active_entities) do
+   if e.kind == 2 and distance(e:get_hitbox().center,b) < e.r then
+     e:dmg_taken(b.dmg)
+     b.t=0
+   end
+  end
+ end
+end
 -->8
 --player
 player.x=60
@@ -176,11 +221,16 @@ player.dy=0
 player.rotspeed=.025
 player.accelpow=.1
 player.is_accelerating=false
-player.max_speed=6
+player.max_speed=5
 player.shooting_cd_counter=0
 player.shooting_cd=15
 player.bullet_spd=3
 player.state=0
+player.kind=1
+player.contact_dmg=1
+player.bullet_color=0
+player.invuln_duration=60
+player.invuln_counter=0
 
 function player:new (o)
  o = o or {}
@@ -190,26 +240,29 @@ function player:new (o)
 end
 
 function player:init()
- self.fuel=self.max_fuel
  self.x=256
  self.y=256
  self.hp=self.max_hp
  self.dx=0
  self.dy=0
  self.color=7
+ self.bullet_dmg=1
+ self.bullet_color=12
  self.state=1
  self.draw_priority=2
+ self.invuln=false
+ self.invuln_counter=self.invuln_duration
 end
 
 function player:update_pos()
+ self.x+=player.dx
+ self.y+=player.dy
  self.tip.x = (sin(self.aim)*self.r)+self.x
  self.tip.y = (cos(self.aim)*self.r)+self.y
  self.br.x = (sin(self.aim+.39)*self.r)+self.x
  self.br.y = (cos(self.aim+.39)*self.r)+self.y
  self.bl.x = (sin(self.aim-.39)*self.r)+self.x
  self.bl.y = (cos(self.aim-.39)*self.r)+self.y
- self.x+=player.dx
- self.y+=player.dy
 end
 
 function player:update()
@@ -220,14 +273,22 @@ function player:update()
  self.centroid.x=(self.tip.x+self.bl.x+self.br.x)/3
  self.centroid.y=(self.tip.y+self.bl.y+self.br.y)/3
  
+ if self.invuln then
+  self.invuln_counter-=1
+  if self.invuln_counter <= 0 then
+   self.invuln=false
+   self.invuln_counter=self.invuln_duration
+   self.color=7
+  end
+ end
+ 
  if self.state==1 then 
   if self.x<=0 then
    self.x=0
-   self.dx=-self.dx/2
-   sfx(2)
+   self.dx=-self.dx/4
   elseif self.x>=world_max_x then
    self.x=world_max_x
-   self.dx=-self.dx/2
+   self.dx=-self.dx/4
   end
   
   if self.y<=0 then
@@ -342,20 +403,39 @@ end
 
 function player:fire_bullet()
  sfx(1)
- fire_bullet(player.tip,player.aim,player.bullet_spd,12)
+ fire_bullet(self.tip,self.aim,self.bullet_spd,self.bullet_dmg,12)
 end
 
-function player:check_collision()
- for entity in all(draw_table) do
-  if player:is_inside(entity:get_hitbox()) then
-  end   
+function player:get_hitbox()
+return {
+ center = {x=self.centroid.x,y=self.centroid.y},
+ r = self.r > 1 and self.r-1 or 1
+}
+end
+
+function player:is_colliding(entity)
+ if entity.kind == 2 then
+  if check_circles_collision(player:get_hitbox(),entity:get_hitbox()) then
+   entity.is_colliding=true
+  else
+   entity.is_colliding=false
+  end
+  
+  return entity.is_colliding
+ elseif entity.kind == 3 then
+  return point_inside(player.centroid,entity:get_hitbox())
+ elseif entity.kind == 4 then
+  return distance(player.centroid,{x=entity.x,y=entity.y}) <= player.r
  end
 end
 
-function player:is_inside(hitbox)
- return point_inside(player.tip,entity)
-    and point_inside(player.bl,entity)
-    and point_inside(player.br,entity)
+function player:dmg_taken(value)
+ self.hp-=value
+ if self.hp <= 0 then
+  self.state = 0
+ end
+ self.invuln=true
+ self.color=12
 end
 -->8
 --bullets
@@ -368,19 +448,22 @@ function bullet:new (o)
  return o
 end
 
-function fire_bullet(origin,aim,speed,color)
+function fire_bullet(origin,aim,speed,dmg,color)
  local b=bullet:new{}
  b.dx=-sin(aim*-1)*speed
  b.dy=cos(aim*-1)*speed
  b.w=1
  b.h=1
+ b.kind=4
  b.x=origin.x
  b.y=origin.y
  b.state=1
  b.t=60
  b.color=color
+ b.dmg=dmg
  b.draw_priority=2
  add(active_entities,b)
+ add(bullets,b)
 end
 
 function bullet:update()
@@ -401,6 +484,10 @@ end
 function bullet:draw()
   pset(self.x,self.y,self.color)
 end
+
+function bullet:get_hitbox()
+ return self
+end
 -->8
 --enemies
 local enemy={}
@@ -412,23 +499,32 @@ function enemy:new (o)
  return o
 end
 
-function spawn_enemy(kind)
+function spawn_enemy(enemy_type)
  local e=enemy:new{}
  local angle=rnd()
  local dist=flr(rnd(32))+48
  e.x=256+sin(angle)*dist
  e.y=256+cos(angle)*dist
+ e.h=0
+ e.w=0
+ e.hp=0
  e.direction=0.5
- e.kind=kind
+ e.kind=2
+ e.type=enemy_type
  e.state=1
  e.speed=0
  e.spr=0
- e.detection_radius=32
+ e.detection_radius=48
  e.draw_priority=3
+ e.bullet_color=nil
+ e.is_colliding=false
  
- if e.kind==2 then
+ if e.type==1 then
+  e.hp=3
+  e.contact_dmg=2
   e.w=8
   e.h=8
+  e.r=4
   e.spr_num=128
   e.speed=1.5
  end
@@ -437,21 +533,19 @@ function spawn_enemy(kind)
 end
 
 function enemy:update()
- if self.state!=0 then 
+ if (self.hp <= 0) self.state=0
+ if self.state!=0 then
   
-  if self.kind==2 then
+  if self.type==1 then
    if self.state==1 then
-    local self_center={}
-    self_center.x=self.x+self.w/2
-    self_center.y=self.y+self.h/2
-    
-    if distance(self_center,player.centroid) < self.detection_radius then
+    if distance(self:get_hitbox().center,player.centroid) < self.detection_radius then
      self.state = 2
     end
    elseif self.state==2 then
     self:charge_player()
    end
   end
+  
   
  end
   
@@ -464,10 +558,22 @@ function enemy:draw()
 end
 
 function enemy:charge_player()
- local newdir = atan2(player.centroid.x-self.x, player.centroid.y-self.y)
+ local newdir = atan2(player.centroid.x-self.x-self.w/2,player.centroid.y-self.y-self.h/2)
 	self.direction = lerp(self.direction, newdir, 1)
 	self.x += self.speed * cos(self.direction)
 	self.y += self.speed * sin(self.direction)  
+end
+
+function enemy:get_hitbox()
+  return {
+   center={x=self.x+self.r,y=self.y+self.r},
+   r=self.r}
+end
+
+function enemy:dmg_taken(value)
+ if not self.is_colliding then
+  self.hp -= value
+ end
 end
 -->8
 --planets
@@ -482,55 +588,84 @@ end
 
 function create_planet(x,y)
  local p=planet:new{x=x-16,y=y-16,w=32,h=32}
- p.kind=1
+ p.kind=3
  p.has_player=false
- p.cooldown=0
- p.fuel_tank=p.max_fuel
  p.draw_priority=1
  add(planets,p)
  return p
 end
 
 function planet:draw()
-  if (self.has_player) pal(11,8)
-  spr(64,self.x,self.y,self.w/8,self.h/8)
-  pal()
+ if (self.has_player) pal(11,8)
+ spr(64,self.x,self.y,self.w/8,self.h/8)
+ pal()
 end
 
 function planet:update()
- if self.has_player then
-  
-  if (t%2 == 0 and fuel<max_fuel) fuel+=1
- end
-  
+end
+
+function planet:player_landing()
+  self.has_player=true
 end
 
 function planet:get_hitbox()
- local hitbox={}
- if self.kind==1 then
-  hitbox={self.x+11,self.y+11,10,10}
+ return {x=self.x+11,y=self.y+11,w=10,h=10}
+end
+-->8
+--quests
+local quest={}
+
+function quest:new (o)
+ o = o or {}   -- create object if user does not provide one
+ setmetatable(o, self)
+ self.__index = self
+ return o
+end
+
+function create_rnd_quest()
+ q = quest:new{}
+ q.type=rnd() <= 0 and 0 or 1
+ q.objective=0
+ q.progression=0
+ q.message=""
+ q.completed=false
+ 
+ if q.type == 0 then
+  q.objective=flr(rnd(3))+3
+  q.message="destroy "..q.objective.." enemies!" 
+ else
+  q.objective=flr(rnd(60))+120
+  q.message="survive for "..q.objective/60 .." minutes!"
  end
- return hitbox
+ return q
+end
+
+function quest:update()
+ q.progression+=1
+ if q.progression == q.objective then
+  q.completed = true
+  q.message = "quest completed!"
+ end
 end
 -->8
 --utils
 function check_collision(thing1, thing2)
-  if thing1.x <= thing2.x+thing2.w and
-     thing1.x+thing1.w >= thing2.x and
-     thing1.y+thing1.h >= thing2.y and
-     thing1.y <= thing2.y+thing2.h and
-     thing1.y+thing1.h >= thing2.y then
-     
-    return true
-  end
-  return false
+ return thing1.x <= thing2.x+thing2.w and
+        thing1.x+thing1.w >= thing2.x and
+        thing1.y+thing1.h >= thing2.y and
+        thing1.y <= thing2.y+thing2.h and
+        thing1.y+thing1.h >= thing2.y
 end
 
-function point_inside(point, rect)
-  if point.x <= rect.x+rect.w and
-     point.x >= rect.x and
-     point.y <= rect.y+rect.h and
-     point.y >= rect.y then
+function check_circles_collision(circle1,circle2)
+ return distance(circle1.center,circle2.center) < circle1.r+circle2.r
+end
+
+function point_inside(point, rect_entity)
+  if point.x <= rect_entity.x+rect_entity.w and
+     point.x >= rect_entity.x and
+     point.y <= rect_entity.y+rect_entity.h and
+     point.y >= rect_entity.y then
      return true
   end
   return false
@@ -552,8 +687,7 @@ function lerp(angle1, angle2, t)
 end
 
 function distance(point1,point2)
- return 
- sqrt((point1.x-point2.x)*(point1.x-point2.x)+(point1.y-point2.y)*(point1.y-point2.y))
+ return sqrt((point1.x-point2.x)*(point1.x-point2.x)+(point1.y-point2.y)*(point1.y-point2.y))
 end
 __gfx__
 00000000333333333333333333333333077007700770077000000000000000000000000000000000000000000000000000000000000000000000000000000000
@@ -621,12 +755,12 @@ __gfx__
 00000000004449999994440000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000400000044444440000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00088000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-07766770000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-07666670000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+08566580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+05666650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 86688668000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 86688668000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-07666670000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-07766770000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+05666650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+08566580000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00088000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 1515151515151507150000151515151500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
