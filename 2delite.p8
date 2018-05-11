@@ -46,6 +46,8 @@ end
 
 function restart_game()
  game_state = 1
+ current_quest={}
+ completed_quests=0
  active_entities={}
  generate_background()
  init_title()
@@ -73,7 +75,13 @@ function _update()
 end
 
 function update_quest()
- if (current_quest.completed) completed_quests+=1
+ if current_quest.completed then
+  completed_quests+=1
+  current_quest={}
+  remove_enemies()
+ end
+ 
+ if (completed_quests == 3) game_state = 3
  
  if current_quest.message != nil then
   if current_quest.type == 0 and current_quest.completed then
@@ -83,7 +91,7 @@ function update_quest()
    end
    
   elseif current_quest.type == 1 then
-   if t%300 == 0 then
+   if t%150 == 0 then
     e = spawn_enemy(1)
     e.detection_radius=256
     add(active_entities,e)
@@ -92,8 +100,6 @@ function update_quest()
     current_quest:update()
    end
   end
- 
- if (completed_quests == 3) game_state = 3
 
  end
 end
@@ -166,6 +172,9 @@ function draw_hud()
  if current_quest.message != nil then
   print(current_quest.message,64-#current_quest.message*2,2)
   print(current_quest.progress.."/"..current_quest.objective,9,22)
+ else
+  local message = "go to the planet for a new quest"
+  print(message,64-#message*2,2)
  end
 end
 
@@ -186,6 +195,15 @@ function generate_background()
    if rnd(1)<star_prob then
     add(bg_sprites,{x=x,y=y})
    end
+  end
+ end
+end
+
+function remove_enemies()
+ for k,e in pairs(active_entities) do
+  if e.kind == 2 then
+   del(active_entities,e)
+   e=nil
   end
  end
 end
@@ -260,7 +278,7 @@ function init_current_quest()
    add(active_entities,e)
   end
  else
-  for i=1,2,current_quest.objective do
+  for i=1,3,current_quest.objective do
    e = spawn_enemy(1)
    e.detection_radius=256
    add(active_entities,e)
@@ -592,7 +610,7 @@ function spawn_enemy(enemy_type)
  
  if e.type==1 then
   e.hp=3
-  e.contact_dmg=2
+  e.contact_dmg=1
   e.w=8
   e.h=8
   e.r=4
@@ -605,6 +623,7 @@ end
 
 function enemy:update()
  if (self.hp <= 0) self.state=0
+ 
  if self.state!=0 then
   
   if self.type==1 then
@@ -647,6 +666,7 @@ end
 function enemy:dmg_taken(value)
  if not self.is_colliding then
   self.hp -= value
+  self.is_colliding=true
  end
 end
 -->8
@@ -703,8 +723,8 @@ function create_rnd_quest()
   q.objective=flr(rnd(3))+3
   q.message="destroy "..q.objective.." enemies!" 
  else
-  q.objective=(flr(rnd(1))+2)*60
-  q.message="survive for "..q.objective/60 .." minutes!"
+  q.objective=flr(rnd(30))+15
+  q.message="survive for "..q.objective .." seconds!"
  end
  return q
 end
@@ -713,7 +733,6 @@ function quest:update()
  q.progress+=1
  if q.progress >= q.objective then
   q.completed = true
-  q.message = "quest completed!"
  end
 end
 -->8
