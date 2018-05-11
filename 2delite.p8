@@ -2,7 +2,7 @@ pico-8 cartridge // http://www.pico-8.com
 version 16
 __lua__
 --main
-t=0
+t=1
 game_state=1
 world_max_x=512
 world_max_y=512
@@ -12,12 +12,11 @@ camera_pos={x=0,y=0}
 
 player={}
 bg_sprites={}
-bullets={}
 
 active_entities={}
 draw_table={}
 current_quest={}
-completed_quests={}
+completed_quests=0
 
 function _init()
  generate_background()
@@ -32,9 +31,6 @@ function init_game()
  add(active_entities,planet)
  add(draw_table,planet)
  add(draw_table,player)
- local enemy=spawn_enemy(1)
- add(active_entities,enemy)
- add(draw_table,enemy)
 end
 
 function init_title()
@@ -43,21 +39,62 @@ function init_title()
  draw_world()
  spr(64,240,240,4,4)
  camera()
- print("prototype",46,38,color(13))
- print("press x to start",32,84,color(13))
+ print("complete 3 quests to win",16,38,color(13))
+ print("press ❎ to start",32,84,color(13))
  camera(192,192)
 end
 
+function restart_game()
+ game_state = 1
+ active_entities={}
+ generate_background()
+ init_title()
+end
+
 function _update()
- if game_state == 1 then
+
+ if (game_state != 1 and player.state == 0) game_state = 0
+ 
+ if game_state == 0 or game_state == 3 then
+  if btn(❎) then
+   restart_game()
+  end
+ elseif game_state == 1 then
   if btn(❎) then
    game_state = 2
    init_game()
   end
  elseif game_state == 2 then
+  update_quest()
   update_game()
   check_bullets_enemies_collisions()
   check_player_collisions()
+ end
+end
+
+function update_quest()
+ if (current_quest.completed) completed_quests+=1
+ 
+ if current_quest.message != nil then
+  if current_quest.type == 0 and current_quest.completed then
+   
+   for k,entity in pairs(active_entities) do
+    if (entity.kind == 2) entity.state = 0
+   end
+   
+  elseif current_quest.type == 1 then
+   if t%300 == 0 then
+    e = spawn_enemy(1)
+    e.detection_radius=256
+    add(active_entities,e)
+   end
+   if t%30 == 0 then
+    current_quest:update()
+   end
+  end
+ 
+ if (completed_quests == 3) game_state = 3
+
  end
 end
 
@@ -85,6 +122,8 @@ function _draw()
   draw_game_over()
  elseif game_state == 2 then
   draw_game()
+ elseif game_state == 3 then
+  draw_win()
  end
 end
 
@@ -104,7 +143,7 @@ function draw_game()
  for entity in all(draw_table) do
   entity:draw()
  end
- camera(0,0)
+ camera()
  draw_hud()
 end
 
@@ -114,6 +153,7 @@ function update_camera()
 end
 
 function draw_hud()
+ --health bar
  for i=1,player.max_hp do
   spr(5,9*i-5,12)
  end
@@ -122,6 +162,11 @@ function draw_hud()
   spr(4,9*i-5,12)
  end
  
+ --current quest
+ if current_quest.message != nil then
+  print(current_quest.message,64-#current_quest.message*2,2)
+  print(current_quest.progress.."/"..current_quest.objective,9,22)
+ end
 end
 
 
@@ -135,6 +180,7 @@ function draw_world()
 end
 
 function generate_background()
+ bg_sprites={}
  for x=1,world_max_x-1 do
   for y=1,world_max_y-1 do
    if rnd(1)<star_prob then
@@ -145,8 +191,15 @@ function generate_background()
 end
 
 function draw_game_over()
- cls()
- print("game over!",108,120)
+ camera()
+ print("game over!",44,60,color(13))
+ print("press ❎ to try again",24,80,color(13))
+end
+
+function draw_win()
+ camera()
+ print("congratulations you won!",20,60,color(13))
+ print("press ❎ to try again",24,80,color(13))
 end
 
 function is_inside_screen(entity)
@@ -170,9 +223,10 @@ function check_player_collisions()
      player:dmg_taken(entity.contact_dmg)
     
     elseif entity.kind == 3 then
-     if current_quest.completed then
-      entity.has_player=true
+     if current_quest.completed or current_quest.message == nil then
       current_quest = create_rnd_quest()
+      init_current_quest()
+      player.hp=player.max_hp
      end
    
     elseif entity.kind == 4 then
@@ -187,15 +241,33 @@ function check_player_collisions()
 end
 
 function check_bullets_enemies_collisions()
- for k,b in pairs(bullets) do
-  for k,e in pairs(active_entities) do
-   if e.kind == 2 and distance(e:get_hitbox().center,b) < e.r then
-     e:dmg_taken(b.dmg)
-     b.t=0
+ for k,b in pairs(active_entities) do
+  if b.kind == 4 then
+   for k,e in pairs(active_entities) do
+    if e.kind == 2 and distance(e:get_hitbox().center,b) < e.r then
+      e:dmg_taken(b.dmg)
+      b.state=0
+    end
    end
   end
  end
 end
+
+function init_current_quest()
+ if current_quest.type == 0 then
+  for i=1,current_quest.objective do
+   e = spawn_enemy(1)
+   add(active_entities,e)
+  end
+ else
+  for i=1,2,current_quest.objective do
+   e = spawn_enemy(1)
+   e.detection_radius=256
+   add(active_entities,e)
+  end
+ end
+end
+
 -->8
 --player
 player.x=60
@@ -463,7 +535,6 @@ function fire_bullet(origin,aim,speed,dmg,color)
  b.dmg=dmg
  b.draw_priority=2
  add(active_entities,b)
- add(bullets,b)
 end
 
 function bullet:update()
@@ -502,7 +573,7 @@ end
 function spawn_enemy(enemy_type)
  local e=enemy:new{}
  local angle=rnd()
- local dist=flr(rnd(32))+48
+ local dist=flr(rnd(48))+64
  e.x=256+sin(angle)*dist
  e.y=256+cos(angle)*dist
  e.h=0
@@ -546,7 +617,10 @@ function enemy:update()
    end
   end
   
-  
+ else
+  if current_quest.type == 0 then
+   current_quest:update()
+  end
  end
   
 end
@@ -589,23 +663,18 @@ end
 function create_planet(x,y)
  local p=planet:new{x=x-16,y=y-16,w=32,h=32}
  p.kind=3
- p.has_player=false
  p.draw_priority=1
  add(planets,p)
  return p
 end
 
 function planet:draw()
- if (self.has_player) pal(11,8)
+ if (current_quest.message != nil and not current_quest.completed) pal(11,8)
  spr(64,self.x,self.y,self.w/8,self.h/8)
  pal()
 end
 
 function planet:update()
-end
-
-function planet:player_landing()
-  self.has_player=true
 end
 
 function planet:get_hitbox()
@@ -624,9 +693,9 @@ end
 
 function create_rnd_quest()
  q = quest:new{}
- q.type=rnd() <= 0 and 0 or 1
+ q.type=rnd() <= 0.5 and 0 or 1
  q.objective=0
- q.progression=0
+ q.progress=0
  q.message=""
  q.completed=false
  
@@ -634,15 +703,15 @@ function create_rnd_quest()
   q.objective=flr(rnd(3))+3
   q.message="destroy "..q.objective.." enemies!" 
  else
-  q.objective=flr(rnd(60))+120
+  q.objective=(flr(rnd(1))+2)*60
   q.message="survive for "..q.objective/60 .." minutes!"
  end
  return q
 end
 
 function quest:update()
- q.progression+=1
- if q.progression == q.objective then
+ q.progress+=1
+ if q.progress >= q.objective then
   q.completed = true
   q.message = "quest completed!"
  end

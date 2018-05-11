@@ -13,3 +13,8 @@ Wednesday 9/05:
 
 Thursday 10/05:
 + Enemies-bullets collisions
+
+Friday 11/05:
++ Quests
++ Fixed some bugs
+Completed Prototype
